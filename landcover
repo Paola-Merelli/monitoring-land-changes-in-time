@@ -1,0 +1,305 @@
+setwd("C:/tirocinio")
+library(raster)
+library(purrr)
+library(ggplot2)
+library(RColorBrewer)
+library(viridis)
+library(patchwork)
+library(rgdal)
+library(vegan)
+library(ncdf4)
+library(StatMatch)
+
+# importing data:
+r_t0 <- raster("corine_1990.tif")
+r_t0
+
+r_t1 <- raster("corine_2018.tif")
+r_t1
+
+# plot original land cover maps
+t0_dat <- as.data.frame(r_t0, xy = TRUE)
+t1_dat <- as.data.frame(r_t1, xy=TRUE)
+
+unique(values(r_t0))
+codes_90 <- c(1, 2, 3, 4, 6, 7, 9, 11, 12, 13, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 31, 32, 33, 40, 41, 43)
+
+names_90 <- c("continuous uban fabric", "discontinuous urban fabric", "industrial or commercial units", "road and rail networks",
+             "airports", "mineral extraction sites", "construction sites", "sport and leisure facilities", "non irrigated arable land",
+             "permanently irrigated land", "vineyards", "fruit trees and berry plantations", "olive groves", "pastures", "annual/permanent crops",
+             "complex cultivation patterns", "agriculture with significant areas of natural vegetation", "agro-forestry areas", "broad-leaved forest",
+             "coniferous forest", "mixed forest", "natural grassland", "moors and heatland", "sclerophyllous vegetation", "transitional woodland shrub",
+             "bare rocks", "sparsely vegetated areas", "burnt areas", "water courses", "water bodies", "estuaries")
+             
+colors_90 <- c("red", "tomato", "magenta", "brown4", "thistle1", "orchid4", "maroon2", "mistyrose2", "khaki", "yellow", "orange", 
+              "sandybrown", "yellowgreen", "yellow3", "lemonchiffon", "gold2", "lightgoldenrod3", "rosybrown1", "chartreuse", "forestgreen", 
+              "chartreuse4", "darkolivegreen2", "palegreen", "springgreen", "greenyellow", "gray75", "darkseagreen2", "black", "turquoise1",
+              "steelblue1", "aquamarine")
+
+g1 <-ggplot(data = t0_dat) +
+  geom_raster(aes(x=x, y=y, fill=factor(corine_1990))) + 
+  scale_fill_manual(name = "Land Cover", values = colors_90, labels = names_90, na.translate = FALSE) +
+  coord_sf(expand = F) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        panel.background = element_rect(fill = "white", color = "black")) +
+  ggtitle("Land Cover 1990")
+g1
+
+
+unique(values(r_t1))
+
+codes_18 <- c(1, 2, 3,  4, 6, 7,  8, 9, 10, 11, 12, 13, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 31, 32, 33, 40, 41, 43)
+
+names_18 <- c("continuous uban fabric", "discontinuous urban fabric", "industrial or commercial units", "road and rail networks",
+              "airports", "mineral extraction sites", "dump sites", "construction sites", "green urban areas", "sport and leisure facilities", "non irrigated arable land",
+              "permanently irrigated land", "vineyards", "fruit trees and berry plantations", "olive groves", "pastures", "annual/permanent crops",
+              "complex cultivation patterns", "agriculture with significant areas of natural vegetation", "agro-forestry areas", "broad-leaved forest",
+              "coniferous forest", "mixed forest", "natural grassland", "moors and heatland", "sclerophyllous vegetation", "transitional woodland shrub",
+              "bare rocks", "sparsely vegetated areas", "burnt areas", "water courses", "water bodies", "estuaries")
+
+colors_18 <- c("red", "tomato", "magenta", "brown4", "thistle1", "orchid4", "darkred", "maroon2", "pink", "mistyrose2", "khaki", "yellow", "orange", 
+               "sandybrown", "yellowgreen", "yellow3", "lemonchiffon", "gold2", "lightgoldenrod3", "rosybrown1", "chartreuse", "forestgreen", 
+               "chartreuse4", "darkolivegreen2", "palegreen", "springgreen", "greenyellow", "gray75", "darkseagreen2", "black", "turquoise1",
+               "steelblue1", "aquamarine")
+
+
+g2 <- ggplot(data = t1_dat) +
+  geom_raster(aes(x=x, y=y, fill=factor(corine_2018))) + 
+  scale_fill_manual(name = "Land Cover", values = colors_18, labels = names_18, na.translate = FALSE) +
+  coord_sf(expand = F) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        panel.background = element_rect(fill = "white", color = "black"))+
+  ggtitle("Land Cover 2018")
+g2
+
+g1 + g2
+
+
+
+# raster conversion into matrix
+m_t0 <- as.matrix(r_t0) 
+m_t1 <- as.matrix(r_t1) 
+
+# adapting for a 3x3 mowing window
+mw_t0 <- matrix(NA, nrow = (nrow(m_t0) + 2), ncol = (ncol(m_t0) + 2)) 
+mw_t0[-c(1, nrow(mw_t0)), -c(1, ncol(mw_t0))] <- m_t0 
+
+mw_t1 <- matrix(NA, nrow = (nrow(m_t1) + 2), ncol = (ncol(m_t1) + 2)) 
+mw_t1[-c(1, nrow(mw_t1)), -c(1, ncol(mw_t1))] <- m_t1 
+
+
+
+
+############################## calcolo indici ##################################
+
+
+
+##################  Sorensen
+
+res <- unlist(Map(function(i,j) {
+  t0 <- mw_t0[(i-1):(i+1),(j-1):(j+1)][!is.na(mw_t0[(i-1):(i+1),(j-1):(j+1)])]
+  t1 <- mw_t1[(i-1):(i+1),(j-1):(j+1)][!is.na(mw_t1[(i-1):(i+1),(j-1):(j+1)])]
+  (length(setdiff(t0, t1)) + length(setdiff(t1, t0)))/(2*length(intersect(t0, t1)) 
+  + length(setdiff(t0, t1)) + length(setdiff(t1, t0)))
+},
+rep(2:(nrow(mw_t0)-1), each=(ncol(mw_t0)-2)), rep(2:(ncol(mw_t0)-1),(nrow(mw_t0)-2))))
+
+#Ricostruzione matrice e conversione in raster
+sor_m <- matrix(res, ncol = ncol(m_t0), byrow = T)
+sor_r <- raster(sor_m, template = r_t0)
+
+sor_dat <- as.data.frame(sor_r, xy=T)
+s <- ggplot() + geom_raster(data = sor_dat, mapping = aes(x=x, y=y, fill=layer)) + scale_fill_viridis() + ggtitle ("Sorensen (dis)similarity index") + labs(fill = "Sorensen")
+s
+
+
+##### Sorensen gain
+gain_s <- unlist(Map(function(i,j) {
+  t0 <- mw_t0[(i-1):(i+1),(j-1):(j+1)][!is.na(mw_t0[(i-1):(i+1),(j-1):(j+1)])]
+  t1 <- mw_t1[(i-1):(i+1),(j-1):(j+1)][!is.na(mw_t1[(i-1):(i+1),(j-1):(j+1)])]
+  (length(setdiff(t1, t0))/(2*length(intersect(t0, t1)) + length(setdiff(t0, t1)) + length(setdiff(t1, t0))))
+},
+rep(2:(nrow(mw_t0)-1), each=(ncol(mw_t0)-2)), rep(2:(ncol(mw_t0)-1),(nrow(mw_t0)-2))))
+
+#Ricostruzione matrice e conversione in raster
+sorg_m <- matrix(gain_s, ncol = ncol(m_t0), byrow = T)
+sorg_r <- raster(sorg_m, template = r_t0)
+
+
+sorg_dat <- as.data.frame(sorg_r, xy=T)
+sg <- ggplot() + geom_raster(data = sorg_dat, mapping = aes(x=x, y=y, fill=layer)) + scale_fill_distiller(palette = "Reds", direction = 1) + ggtitle("Sorensen Gain") + labs(fill="Sor-gain")
+sg
+
+
+##### Sorensen loss
+
+loss_s <- unlist(Map(function(i,j) {
+  t0 <- mw_t0[(i-1):(i+1),(j-1):(j+1)][!is.na(mw_t0[(i-1):(i+1),(j-1):(j+1)])]
+  t1 <- mw_t1[(i-1):(i+1),(j-1):(j+1)][!is.na(mw_t1[(i-1):(i+1),(j-1):(j+1)])]
+  (length(setdiff(t0, t1))/(2*length(intersect(t0, t1)) + length(setdiff(t0, t1)) + length(setdiff(t1, t0))))
+},
+rep(2:(nrow(mw_t0)-1), each=(ncol(mw_t0)-2)), rep(2:(ncol(mw_t0)-1),(nrow(mw_t0)-2))))
+
+#Ricostruzione matrice e conversione in raster
+sorl_m <- matrix(loss_s, ncol = ncol(m_t0), byrow = T)
+sorl_r <- raster(sorl_m, template = r_t0)
+
+sorl_dat <- as.data.frame(sorl_r, xy=T)
+sl <- ggplot() + geom_raster(data = sorl_dat, mapping = aes(x=x, y=y, fill=layer)) + scale_fill_distiller(palette = "Blues", direction = 1) + ggtitle("Sorensen Loss") + labs(fill="Sor-loss")
+sl
+
+
+
+############################# Jaccard
+
+rej <- unlist(Map(function(i,j) {
+  t0 <- mw_t0[(i-1):(i+1),(j-1):(j+1)][!is.na(mw_t0[(i-1):(i+1),(j-1):(j+1)])]
+  t1 <- mw_t1[(i-1):(i+1),(j-1):(j+1)][!is.na(mw_t1[(i-1):(i+1),(j-1):(j+1)])]
+  (length(setdiff(t0, t1)) + length(setdiff(t1, t0)))/length(union(t0, t1))
+},
+rep(2:(nrow(mw_t0)-1), each=(ncol(mw_t0)-2)), rep(2:(ncol(mw_t0)-1),(nrow(mw_t0)-2))))
+
+
+#Ricostruzione matrice e conversione in raster
+jacc_m <- matrix(rej, ncol = ncol(m_t0), byrow = T)
+jacc_r <- raster(jacc_m, template = r_t0)
+
+jacc_dat <- as.data.frame(jacc_r, xy=T)
+j <- ggplot()+ geom_raster(data = jacc_dat, mapping = aes(x=x, y=y, fill=layer)) + scale_fill_viridis() + ggtitle("Jaccard (dis)similarity index") + labs(fill="Jaccard")
+j
+
+
+
+###### Jaccard gain
+
+gain_j <- unlist(Map(function(i,j) {
+  t0 <- mw_t0[(i-1):(i+1),(j-1):(j+1)][!is.na(mw_t0[(i-1):(i+1),(j-1):(j+1)])]
+  t1 <- mw_t1[(i-1):(i+1),(j-1):(j+1)][!is.na(mw_t1[(i-1):(i+1),(j-1):(j+1)])]
+  (length(setdiff(t1, t0))/length(union(t0, t1)))
+},
+rep(2:(nrow(mw_t0)-1), each=(ncol(mw_t0)-2)), rep(2:(ncol(mw_t0)-1),(nrow(mw_t0)-2))))
+
+
+#Ricostruzione matrice e conversione in raster
+jacg_m <- matrix(gain_j, ncol = ncol(m_t0), byrow = T)
+jacg_r <- raster(jacg_m, template = r_t0)
+
+jacg_dat <- as.data.frame(jacg_r, xy=T)
+jg <- ggplot() + geom_raster(data = jacg_dat, mapping = aes(x=x, y=y, fill=layer)) + scale_fill_distiller(palette = "Reds", direction = 1) + ggtitle("Jaccard Gain") + labs(fill="jacc-gain")
+jg
+
+
+
+##### Jaccard loss
+
+loss_j <- unlist(Map(function(i,j) {
+  t0 <- mw_t0[(i-1):(i+1),(j-1):(j+1)][!is.na(mw_t0[(i-1):(i+1),(j-1):(j+1)])]
+  t1 <- mw_t1[(i-1):(i+1),(j-1):(j+1)][!is.na(mw_t1[(i-1):(i+1),(j-1):(j+1)])]
+  (length(setdiff(t0, t1))/length(union(t0, t1)))
+},
+rep(2:(nrow(mw_t0)-1), each=(ncol(mw_t0)-2)), rep(2:(ncol(mw_t0)-1),(nrow(mw_t0)-2))))
+
+#Ricostruzione matrice e conversione in raster
+jacl_m <- matrix(loss_j, ncol = ncol(m_t0), byrow = T)
+jacl_r <- raster(jacl_m, template = r_t0)
+
+jacl_dat <- as.data.frame(jacl_r, xy=T)
+jl <- ggplot() + geom_raster(data = jacl_dat, mapping = aes(x=x, y=y, fill=layer)) + scale_fill_distiller(palette = "Blues", direction = 1) + ggtitle("Jaccard Loss") + labs(fill="jacc-loss")
+jl
+
+
+########################### RAO
+
+######## Rao con land cover
+
+rer <- unlist(Map(function(i,j) {
+  t0 <- mw_t0[(i-1):(i+1),(j-1):(j+1)][!is.na(mw_t0[(i-1):(i+1),(j-1):(j+1)])]
+  t1 <- mw_t1[(i-1):(i+1),(j-1):(j+1)][!is.na(mw_t1[(i-1):(i+1),(j-1):(j+1)])]
+  d <- gower.dist(rbind(t0,t1))
+  t(c(specnumber(t0, MARGIN = 1), specnumber(t1, MARGIN = 1))) %*% as.matrix(d)
+  %*% c(specnumber(t0, MARGIN = 1), specnumber(t1, MARGIN = 1))
+},
+rep(2:(nrow(mw_t0)-1), each=(ncol(mw_t0)-2)), rep(2:(ncol(mw_t0)-1),(nrow(mw_t0)-2))))
+
+rao_m <- matrix(rer, ncol = ncol(m_t0), byrow = T)
+rao_r <- raster(rao_m, template = r_t0)
+
+rao_dat <- as.data.frame(rao_r, xy=T)
+r <- ggplot() + geom_raster(data = rao_dat, mapping = aes(x=x, y=y, fill=layer)) + scale_fill_viridis() + ggtitle("Rao's Q diversity index") + labs(fill="Rao")
+r
+
+
+#fatto con elisa ieri:
+repro <- unlist(Map(function(i,j) {
+  t0 <- as.vector(mw_t0[(i-1):(i+1),(j-1):(j+1)])
+  t1 <- as.vector(mw_t1[(i-1):(i+1),(j-1):(j+1)])
+  d <- gower.dist(rbind(t0,t1))
+  t(c(specnumber(t0, MARGIN = 1), specnumber(t1, MARGIN = 1))) %*% as.matrix(d) 
+  %*% c(specnumber(t0, MARGIN = 1), specnumber(t1, MARGIN = 1))
+},
+rep(2:(nrow(mw_t0)-1), each=(ncol(mw_t0)-2)), rep(2:(ncol(mw_t0)-1),(nrow(mw_t0)-2))))
+
+#conversione in matrice e conversione in raster
+rao_mpro <- matrix(repro, ncol = ncol(m_t0), byrow = T)
+rao_rpro <- raster(rao_mpro, template = r_t0)
+
+rao_datpro <- as.data.frame(rao_rpro, xy=T)
+rpro <- ggplot() + geom_raster(data = rao_dat, mapping = aes(x=x, y=y, fill=layer)) + scale_fill_viridis() + ggtitle("RAO") + labs(fill="RAO")
+rpro
+
+
+
+######## Rao con NDVI
+
+nd1 <- raster("c_gls_NDVI_199805010000_GLOBE_VGT_V2.2.1.nc")
+nd2 <- raster("c_gls_NDVI_201805010000_GLOBE_PROBAV_V2.2.1.nc")
+
+ext <- c(-9, -3, 38, 43)
+rn_t0 <- crop(nd1, ext)
+rn_t1 <- crop(nd2, ext)
+
+#plot to check extent
+par(mfrow=c(1, 2))
+plot(rn_t0)
+plot(rn_t1)
+
+rn_t0_dat <- as.data.frame(rn_t0, xy=T)
+n1 <- ggplot() + geom_raster(data = rn_t0_dat, mapping = aes(x=x, y=y, fill=Normalized.Difference.Vegetation.Index.1KM)) + scale_fill_viridis() + ggtitle("NDVI 1998") + labs(fill="NDVI")
+n1
+
+
+rn_t1_dat <- as.data.frame(rn_t1, xy=T)
+n2 <- ggplot() + geom_raster(data = rn_t1_dat, mapping = aes(x=x, y=y, fill=Normalized.Difference.Vegetation.Index.1KM)) + scale_fill_viridis() + ggtitle("NDVI 2018") + labs(fill="NDVI")
+n2
+
+#conversione in matrice e adattamento per mw
+mn_t0 <- as.matrix(rn_t0) 
+mn_t1 <- as.matrix(rn_t1) 
+
+mnw_t0 <- matrix(NA, nrow = (nrow(mn_t0) + 2), ncol = (ncol(mn_t0) + 2)) 
+mnw_t0[-c(1, nrow(mnw_t0)), -c(1, ncol(mnw_t0))] <- mn_t0 
+
+mnw_t1 <- matrix(NA, nrow = (nrow(mn_t1) + 2), ncol = (ncol(mn_t1) + 2)) 
+mnw_t1[-c(1, nrow(mnw_t1)), -c(1, ncol(mnw_t1))] <- mn_t1 
+
+
+rern <- unlist(Map(function(i,j) {
+  t0 <- as.vector(mnw_t0[(i-1):(i+1),(j-1):(j+1)])
+  t1 <- as.vector(mnw_t1[(i-1):(i+1),(j-1):(j+1)])
+  d <- dist(rbind(t0, t1))
+  t(c(mean(t0, na.rm = T), mean(t1, na.rm = T))) %*% as.matrix(d) 
+  %*% c(mean(t0, na.rm = T), mean(t1, na.rm = T))
+},
+rep(2:(nrow(mnw_t0)-1), each=(ncol(mnw_t0)-2)), rep(2:(ncol(mnw_t0)-1),(nrow(mnw_t0)-2))))
+
+
+#Ricostruzione matrice e conversione in raster
+raon_m <- matrix(rern, ncol = ncol(mn_t0), byrow = T)
+
+raon_r <- raster(raon_m, template = rn_t0)
+
+raon_dat <- as.data.frame(raon_r, xy=T)
+rn <- ggplot() + geom_raster(data = raon_dat, mapping = aes(x=x, y=y, fill=layer)) + scale_fill_viridis() + ggtitle("Rao's Q diversity index") + labs(fill= "RAO")
+rn

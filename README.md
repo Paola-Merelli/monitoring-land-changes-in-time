@@ -25,6 +25,7 @@ For each map pair the following analysis were conducted
 - Jaccard Gain
 - Jaccard Loss
 - Rao’sQ index
+
 For the analysis it was used the moving window approach that consist in selecting an odd
 number, which will correspond to the length of the squared window. 
 With this choice, we have a central entry in the window, which will be placed as a mask, in position (1, 1) over our raster. 
